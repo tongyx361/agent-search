@@ -2,8 +2,8 @@ project:
   output-dir: _docs
 
 website:
-  title: "nbdev-template-tongyx361"
-  site-url: "https://tongyx361.github.io/nbdev-template-tongyx361"
-  description: "nbdev template customed by Yuxuan Tong"
+  title: "agent-search"
+  site-url: "https://tongyx361.github.io/agent-search"
+  description: "Flexible and efficient LLM agent searching algorithm implementation"
   repo-branch: main
-  repo-url: "https://github.com/tongyx361/nbdev-template-tongyx361"
+  repo-url: "https://github.com/tongyx361/agent-search"

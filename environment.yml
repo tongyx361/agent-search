@@ -1,4 +1,4 @@
-name: myenv
+name: agent-search
 channels:
   - pytorch
   - nvidia
