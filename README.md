@@ -43,10 +43,10 @@ pre-commit install
 
 ### File Structure
 
-    nbdev_template_tongyx361
+    agent-search
     ├── data
     ├── utils # Repository utilities
-    ├── pkg_name # Package code for common utilities
+    ├── agent_search # Package code for common utilities
     ├── nbs # Notebooks and other files to run tests and generate documentation with https://nbdev.fast.ai
     ├── [pipelines] # Reusable (Python / Shell) scripts or notebooks
     └── [scripts] # One-time scripts
