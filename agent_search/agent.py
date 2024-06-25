@@ -10,7 +10,7 @@ from tqdm import tqdm
 from vllm import LLM, RequestOutput, SamplingParams
 
 from .exec_code import N_KAGGLE_CPU, CodeCellTemplate, exec_cells
-from .parse import extract_ans
+from .parse import extract_ans_is, extract_boxed
 from .prompt import PromptTemplate
 from .trajectory import VLLMPythonMathTrajectory
 
@@ -34,6 +34,7 @@ class AgentSearchCfg:
         allow_timeout: bool = True,
         allow_err: bool = True,
         allow_empty_output: bool = True,
+        spec_neg: bool = False,
     ):
         self.sampling_params = sampling_params
         # if self.sampling_params.prompt_logprobs in [None, 0]:
@@ -62,6 +63,7 @@ class AgentSearchCfg:
         self.allow_timeout = allow_timeout
         self.allow_err = allow_err
         self.allow_empty_output = allow_empty_output
+        self.spec_neg = spec_neg
 
 
 class CtxTemplate:
@@ -137,7 +139,51 @@ class CtxTemplate:
         return self.code_cell_template.extract_cells(last_resp)
 
 
-class VLLMPythonMathAgent:
+class AgentBase:
+    def __init__(self):
+        pass
+
+    def ensemble_ans(self, fin_trajs: list[VLLMPythonMathTrajectory]) -> int:
+        """Ensemble answers from finished trajectories.
+
+        Parameters
+        ----------
+        fin_trajs : list[VLLMPythonMathTrajectory]
+            The finished trajectories.
+
+        Returns
+        -------
+        int
+            The ensembled answer (non-negative integer) modulo 1000.
+        """
+        # TODO: consider trajectory information for ensemble
+        if len(fin_trajs) == 0:
+            print("[WARNING] No finished trajectories!")
+            return 0
+        if isinstance(fin_trajs[0], dict):
+            answers = [traj["ans"] for traj in fin_trajs]
+        else:
+            answers = [traj.ans for traj in fin_trajs]
+        ans_votes = Counter(answers).most_common()
+        maj_ans = ans_votes[0][0]
+        print(
+            f"{sum(ans_vote[1] for ans_vote in ans_votes)} answers vote as: {ans_votes} -> {maj_ans}"
+        )
+        return maj_ans
+
+    def extract_ans(self, resp: str) -> str:
+        """Extract the answer from the response."""
+        ans = extract_boxed(resp)
+        if ans is None:
+            ans = extract_ans_is(resp)
+        return ans
+
+    def eq(self, a: Any, b: Any) -> bool:
+        """Check the equality of two answers."""
+        return a % 1000 == b % 1000
+
+
+class VLLMPythonMathAgent(AgentBase):
     """Corresponding to a vLLM model trained on specific data"""
 
     def __init__(
@@ -146,15 +192,13 @@ class VLLMPythonMathAgent:
         prompt_template: Union[PromptTemplate, str],
         search_cfg: AgentSearchCfg,
         code_cell_template: Union[CodeCellTemplate, str],
-        extract_ans: Callable[[str], str] = extract_ans,
-        eq: Callable[[Any, Any], bool] = lambda x, y: x == y,
         rag_eg_qa_map: Optional[dict[str, str]] = None,
     ):
+        AgentBase.__init__(self)
+
         self.llm = llm
         self.ctx_template = CtxTemplate(prompt_template, code_cell_template)
         self.search_cfg = search_cfg
-        self.extract_ans = extract_ans
-        self.eq = eq
         self.rag_eg_qa_map = rag_eg_qa_map if rag_eg_qa_map else {}
         # Sampling parameters
         stop_texts = self.ctx_template.get_stop_texts(
@@ -175,8 +219,8 @@ class VLLMPythonMathAgent:
             return any(self.eq(traj.ans, ref_ans) for traj in fin_trajs)
         else:
             return len(fin_trajs) >= self.search_cfg.n_fin_ans or (
-                self.search_cfg.n_max_sample is not None
-                and len(fin_trajs) + len(drop_trajs) >= self.search_cfg.n_max_sample
+                isinstance(self.search_cfg.n_max_sample, int)
+                and len(fin_trajs) + len(drop_trajs) >= self.search_cfg.n_max_sample > 0
             )
 
     def search(
@@ -465,7 +509,9 @@ class VLLMPythonMathAgent:
                 traj.ans = float(eval(traj.ans))
                 assert traj.ans.is_integer()  # Integer
                 traj.ans = round(traj.ans)
-                assert traj.ans >= 0  # Non-negative
+                if traj.ans < 0:
+                    assert self.search_cfg.spec_neg
+                    traj.ans *= -1
                 return True
             except Exception:
                 # print(f"Drop trajectory")
@@ -530,28 +576,3 @@ class VLLMPythonMathAgent:
             keep_trajs.append(traj)
 
         return keep_trajs, drop_trajs
-
-    def ensemble_ans(self, fin_trajs: list[VLLMPythonMathTrajectory]) -> int:
-        """Ensemble answers from finished trajectories.
-
-        Parameters
-        ----------
-        fin_trajs : list[VLLMPythonMathTrajectory]
-            The finished trajectories.
-
-        Returns
-        -------
-        int
-            The ensembled answer (non-negative integer) modulo 1000.
-        """
-        # TODO: consider trajectory information for ensemble
-        if len(fin_trajs) == 0:
-            print("[WARNING] No finished trajectories!")
-            return 0
-        answers = [traj.ans for traj in fin_trajs]
-        ans_votes = Counter(answers).most_common()
-        maj_ans = ans_votes[0][0]
-        print(
-            f"{sum(ans_vote[1] for ans_vote in ans_votes)} answers vote as: {ans_votes} -> {maj_ans}"
-        )
-        return maj_ans
