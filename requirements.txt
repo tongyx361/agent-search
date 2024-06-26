@@ -2,3 +2,6 @@ vllm
 pebble
 matplotlib
 seaborn
+sympy
+numpy
+scipy

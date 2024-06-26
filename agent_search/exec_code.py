@@ -16,6 +16,7 @@ TOOL_CONFIG_ID2DICT = {
         "input_end": "```",
         "output_begin": "```output",
         "output_end": "```",
+        # "trunc_len": None,
         "trunc_len": (50, 50),
         "elipsis": "...",
     }
@@ -177,7 +178,7 @@ class CodeCellTemplate:
     def clean_stderr(self, stderr: str) -> str:
         """Clean the stderr output."""
         err_lines = []
-        for line in stderr.split("\n"):
+        for line in stderr.split("\n"):  # Remove delimiter
             patt = regex.search(
                 r'(?P<start>.*)File "(?P<file>.*)", line (?P<lno>\d+), (?P<end>.*)',
                 line,
@@ -202,10 +203,10 @@ class CodeCellTemplate:
         return cleaned_stderr
 
 
-NB_OUTPUT_PROMPT = "Out[1]: "
+ANSI_ESC = regex.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
 
 
-def exec_cells(cells: list[str]) -> tuple[str, str]:
+def exec_cells(cells: list[str], color: bool = False) -> tuple[str, str]:
     """Execute the code cells like a notebook and return the stdout and stderr of the last cell.
     Modified from
     - https://github.com/Kipok/NeMo-Skills/blob/6a909ec0974340b02a1083dce90e79bea30ecb60/nemo_skills/code_execution/sandbox.py#L168-L233
@@ -222,24 +223,30 @@ def exec_cells(cells: list[str]) -> tuple[str, str]:
     """
 
     try:
-        shell = InteractiveShell()
+        # Create a new InteractiveShell instance
+        shell = InteractiveShell.instance()
+
+        if not color:
+            # Disable coloring
+            shell.colors = "NoColor"
+            shell.color_info = False
         shell.run_cell(
             """
 import warnings
 warnings.filterwarnings('ignore')
 import os
 os.environ['OPENBLAS_NUM_THREADS'] = '16'
+from sympy import *
 """
         )
         for cell in cells:
             with io.capture_output(display=False) as captured:
                 shell.run_cell(cell)
                 # serializing to str to make sure things like Rational can be converted to json
-                stdout = captured.stdout.replace(NB_OUTPUT_PROMPT, "")
-                stderr = captured.stderr.replace(NB_OUTPUT_PROMPT, "")
+                output = ANSI_ESC.sub("", captured.stdout).strip()
+                assert not captured.stderr  # Always empty
     except Exception:
         # removing useless prefix from traceback
-        stdout = ""
-        stderr = traceback.format_exc()
+        output = traceback.format_exc().strip()
 
-    return stdout.strip(), stderr.strip()
+    return output

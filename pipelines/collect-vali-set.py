@@ -29,6 +29,9 @@ math_df["ans_str"] = math_df["solution"].apply(extract_boxed)
 math_df
 
 
+math_df[math_df["level"] >= 5]
+
+
 math_df["is_ans_int"] = math_df["ans_str"].apply(lambda x: x.isnumeric())
 math_df
 

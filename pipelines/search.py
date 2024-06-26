@@ -15,7 +15,6 @@ from datetime import datetime
 from vllm import LLM, SamplingParams
 from transformers import set_seed
 
-from agent_search.prompt import PromptTemplate
 from agent_search.agent import VLLMPythonMathAgent, AgentSearchCfg
 
 
@@ -190,248 +189,9 @@ set_seed(args.seed)
 
 ICL_EG_QA_MAP = {
     r"""
-Let $k, l > 0$ be parameters.
-The parabola $y = kx^2 - 2kx + l$ intersects the line $y = 4$ at two points $A$ and $B$.
-These points are distance 6 apart.
-What is the sum of the squares of the distances from $A$ and $B$ to the origin?
-    """: r'''
-```python
-from sympy import symbols, solve, sqrt
-
-def sum_of_squares_of_distances():
-    """Let $k, l > 0$ be parameters. The parabola $y = kx^2 - 2kx + l$ intersects the line $y = 4$ at two points $A$ and $B$. These points are distance 6 apart. What is the sum of the squares of the distances from $A$ and $B$ to the origin?
-"""
-    x, k, l = symbols('x k l')
-    # Equation of the parabola
-    parabola_eq = k*x**2 - 2*k*x + l - 4
-    # Solve for x when y = 4
-    x_values = solve(parabola_eq, x)
-    # Distance from A and B to the origin
-    distance_A = sqrt(x_values[0]**2 + 4**2)
-    distance_B = sqrt(x_values[1]**2 + 4**2)
-    # The sum of the squares of the distances
-    sum_of_squares = distance_A**2 + distance_B**2
-    # Substitute the condition that the distance between A and B is 6
-    sum_of_squares = sum_of_squares.subs(sqrt((x_values[1] - x_values[0])**2), 6)
-
-    return sum_of_squares
-
-result = sum_of_squares_of_distances()
-print(result)
-```
-
-```output
-32 + (k - sqrt(k*(k - l + 4)))**2/k**2 + (k + sqrt(k*(k - l + 4)))**2/k**2
-```
-
-The code seem to fail to solve the equations directly. We need to further simplify the equation.
-
-We know that the distance between $A$ and $B$ is $x_2-x_1=6$, and the Vieta's formulas give us that the sum of the roots of the equation $kx^2 - 2kx + l - 4 = 0$ is $x_1 +x_2 =-\frac{b}{a} = -\frac{-2k}{k} = 2$, and the product of the roots is $x_1x_2 = \frac{c}{a} = \frac{l - 4}{k}$. So we can use the identity $\left(x_1 - x_2\right)^2 = \left(x_1 + x_2\right)^2 - 4x_1x_2$ to find a relationship between $k$ and $l$.
-
-By substitution, we have $\left(x_1 - x_2\right)^{2} = - 4\cdot\frac{l - 4}{k} = 6^2$, which simplifies to $4 - \frac{4l - 16}{k} = 36$, or $\frac{4l - 16}{k} = -32$. Multiplying both sides by $k$ gives $4l - 16 = -32k$, or $4l = 16 - 32k$. Dividing both sides by 4 gives $l = 4 - 8k$.
-
-Now, we can substitute this expression for $l$ into the sum of squares of distances to get the final result.
-
-```python
-def sum_of_squares_of_distances_final():
-    """Let $k, l > 0$ be parameters. The parabola $y = kx^2 - 2kx + l$ intersects the line $y = 4$ at two points $A$ and $B$. These points are distance 6 apart. What is the sum of the squares of the distances from $A$ and $B$ to the origin?
-"""
-    x, k = symbols('x k')
-    # Equation of the parabola with l = 4 - 8k
-    parabola_eq = k*x**2 - 2*k*x + 4 - 8*k - 4
-    # Solve for x when y = 4
-    x_values = solve(parabola_eq, x)
-    # Distance from A and B to the origin
-    distance_A = sqrt(x_values[0]**2 + 4**2)
-    distance_B = sqrt(x_values[1]**2 + 4**2)
-    # The sum of the squares of the distances
-    sum_of_squares = distance_A**2 + distance_B**2
-    # Substitute the condition that the distance between A and B is 6
-    sum_of_squares = sum_of_squares.subs(sqrt((x_values[1] - x_values[0])**2), 6)
-
-    return sum_of_squares
-
-result = sum_of_squares_of_distances_final()
-print(result)
-```
-
-```output
-52
-```
-
-So, the sum of the squares of the distances from $A$ and $B$ to the origin is $52$. The answer is $\boxed{52}$.
-''',
-    r"""
-Let $ABCD$ be a unit square.
-Let $P$ be the point on $AB$ such that $|AP| = 1/{20}$ and let $Q$ be the point on $AD$ such that $|AQ| = 1/{24}$. The lines $DP$ and $BQ$ divide the square into four regions.
-Find the ratio between the areas of the largest region and the smallest region.
-    """: r'''
-
-```python
-import numpy as np
-
-def area_ratio():
-    """Let $ABCD$ be a unit square. Let $P$ be the point on $AB$ such that $|AP| = 1/{20}$ and let $Q$ be the point on $AD$ such that $|AQ| = 1/{24}$. The lines $DP$ and $BQ$ divide the square into four regions. Find the ratio between the areas of the largest region and the smallest region. The final answer must be a non-negative integer."""
-    # Define points of the square
-    A = np.array([0, 0])
-    B = np.array([1, 0])
-    C = np.array([1, 1])
-    D = np.array([0, 1])
-    # Define points P and Q
-    P = np.array([1 / 20, 0])
-    Q = np.array([0, 1 / 24])
-    # Calculate intersection of DP and BQ
-    # Line DP: y = (1 - P[0]) / (P[1] - 1) * (x - P[0])
-    # Line BQ: y = Q[1] / (Q[0] - 1) * (x - Q[0]) + Q[1]
-    # Solving for x and y at intersection
-    # Line equations in the form ax + by = c
-    a1, b1, c1 = (
-        (D[1] - P[1]),
-        (P[0] - D[0]),
-        (D[1] - P[1]) * D[0] + (P[0] - D[0]) * D[1],
-    )
-    a2, b2, c2 = (
-        (Q[1] - B[1]),
-        (B[0] - Q[0]),
-        (Q[1] - B[1]) * B[0] + (B[0] - Q[0]) * B[1],
-    )
-    # Calculate determinant
-    det = a1 * b2 - a2 * b1
-    if det == 0:
-        return "Lines are parallel"
-    # Intersection point I
-    x = (c1 * b2 - c2 * b1) / det
-    y = (a1 * c2 - a2 * c1) / det
-    I = np.array([x, y])
-    # Define the four regions
-    regions = [[A, Q, I], [Q, D, I], [D, C, I], [C, B, I, P]]
-    # Calculate areas of the regions
-    def area(poly):
-        x = poly[:, 0]
-        y = poly[:, 1]
-        return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-    areas = [area(np.array(region)) for region in regions]
-    smallest_area = min(areas)
-    largest_area = max(areas)
-    # Calculate the ratio
-    ratio = largest_area / smallest_area
-
-    return ratio
-
-result = area_ratio()
-print(result)
-```
-
-```output
-480.00000000000006
-```
-
-The ratio between the areas of the largest region and the smallest region is $480$. The answer is $\boxed{480}$.
-''',
-    r"""
-Let the ‘sparkle' operation on positive integer $n$ consist of calculating the sum of the digits of $n$ and taking its factorial, e.g. the sparkle of 13 is $4! = 24$.
-A robot starts with a positive integer on a blackboard, then after each second for the rest of eternity, replaces the number on the board with its sparkle.
-For some 'special' numbers, if they're the first number, then eventually every number that appears will be less than 6.
-How many such special numbers are there with at most 36 digits?
-""": r'''
-```python
-import math
-
-def special_numbers():
-    """Let the ‘sparkle' operation on positive integer $n$ consist of calculating the sum of the digits of $n$ and taking its factorial, e.g. the sparkle of 13 is $4! = 24$. A robot starts with a positive integer on a blackboard, then after each second for the rest of eternity, replaces the number on the board with its sparkle. For some 'special' numbers, if they're the first number, then eventually every number that appears will be less than 6. How many such special numbers are there with at most 36 digits?
-"""
-    # The only factorials less than 6 are that of 1 and 2.
-    # Therefore, all special numbers must have digit sums of 1 or 2.
-    # Also, no numbers with digit sums of 1 or 2 are factorials of any other number,
-    # because they cannot be divisible by 3 (the digit sum of a number divisible by 3 is also divisible by 3).
-    # Case 1: All 0s and one 1 (e.g., 10000)
-    case_1 = math.comb(36, 1)
-    # Case 2: All 0s and one 2 (e.g., 20000)
-    case_2 = math.comb(36, 1)
-    # Case 3: All 0s and two 1s (e.g., 10010)
-    case_3 = math.comb(36, 2)
-    # Total number of special numbers
-    total_special_numbers = case_1 + case_2 + case_3
-
-    return total_special_numbers
-
-result = special_numbers()
-print(result)
-```
-
-```output
-702
-```
-
-So there are 702 special numbers with at most 36 digits. The answer is $\boxed{702}$.
-''',
-    r"""
-What is the minimum value of $5x^2+5y^2-8xy$ when $x$ and $y$ range over all real numbers such that $|x-2y| + |y-2x| = 40$?
-""": r'''
-```python
-def find_minimum_integer():
-    """What is the minimum value of $5x^2+5y^2-8xy$ when $x$ and $y$ range over all integer solutions of the constraint equation $|x-2y| + |y-2x| = 40$?"""
-    # The minimum value of $5x^2+5y^2-8xy$ when $x$ and $y$ range over all real numbers such that $|x-2y| + |y-2x| = 40$ is a non-negative integer.
-    # So we can solve this problem by trying all integer solutions of the constraint equation and then finding the minimum value of $5x^2 + 5y^2 - 8xy$.
-    min_value = float('inf')
-    for x in range(-100, 101):
-        for y in range(-100, 101):
-            if abs(x - 2*y) + abs(y - 2*x) == 40:
-                value = 5*x**2 + 5*y**2 - 8*x*y
-                if value < min_value:
-                    min_value = value
-    return min_value
-
-result = find_minimum_integer()
-print(result)
-```
-
-```output
-800
-```
-
-The minimum value of $5x^2+5y^2-8xy$ when $x$ and $y$ range over all real numbers such that $|x-2y| + |y-2x| = 40$ is a non-negative integer, and it is 800. So the answer is $\boxed{800}$.
-''',
-    r"""
-There exists a unique increasing geometric sequence of five 2-digit positive integers. What is their sum?
-""": r'''
-```python
-from sympy import symbols, solve, simplify
-
-def sum_of_sequence():
-    """There exists a unique increasing geometric sequence of five 2-digit positive integers. What is their sum?
-"""
-    a, r = symbols('a r')
-    # The first term of the sequence is a, and the fifth term is a*r^4.
-    # The sequence is increasing, so r > 1.
-    # The sequence consists of 2-digit positive integers, so a and a*r^4 must be in the range 10 to 99.
-    # We can solve this problem by trying all integers in the range under the constraint.
-    for ar4 in range(99, 9, -1):
-        for a in range(10, 100):
-            r = (ar4 / a) ** (1 / 4)
-            if r > 1:
-                ar = a * r
-                ar2 = ar * r
-                ar3 = ar2 * r
-                if ar.is_integer() and ar2.is_integer() and ar3.is_integer():
-                    sum_of_sequence = sum([a, ar, ar2, ar3, ar4])
-
-    return sum_of_sequence
-
-result = sum_of_sequence()
-print(result)
-```
-
-```output
-211.0
-```
-
-So the sum of the unique increasing geometric sequence of five 2-digit positive integers is 211. The answer is $\boxed{211}$.
-''',
-    r"""
 The points $\left(x, y\right)$ satisfying $((\vert x + y \vert - 10)^2 + ( \vert x - y \vert - 10)^2)((\vert x \vert - 8)^2 + ( \vert y \vert - 8)^2) = 0$ enclose a convex polygon.
 What is the area of this convex polygon?
-""": r'''
+    """: r'''
 ```python
 from sympy import symbols, Eq, solve
 
@@ -504,9 +264,9 @@ ICL_EG_QA_MAP = {
 }
 for i, (q, a) in enumerate(ICL_EG_QA_MAP.items()):
     print(f"### Problem {i}")
-    print(f"#### Problem")
+    print("#### Problem")
     print(q)
-    print(f"#### Solution")
+    print("#### Solution")
     print(a)
 
 
@@ -534,7 +294,7 @@ sampling_params = SamplingParams(
     max_tokens=args.n_max_out_tok,
     skip_special_tokens=True,
     # prompt_logprobs=1,
-    # logprobs=0,
+    logprobs=2,
     seed=args.seed,
 )
 print(f"{sampling_params=}")
@@ -577,7 +337,7 @@ domain_correct_idxs = defaultdict(list)
 problem_times = []
 
 try:
-    for idx, dp in enumerate(dset[29:]):
+    for idx, dp in enumerate(dset):
         search_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         # search_dir = os.path.join(seed_dir, f"problem-{idx}-{search_timestamp}")
         search_dir = os.path.join(test_dir, f"problem-{idx}-{search_timestamp}")

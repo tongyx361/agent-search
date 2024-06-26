@@ -23,6 +23,7 @@ class VLLMPythonMathTrajectory:
         self.completion_tok_cnts: list[int] = []
         self.completion_cum_logprobs: list[float] = []
         # self.completion_logprobs_list: list[list[float]] = []
+        self.last_completion_logprobs_list: list[dict] = []
         self.completion_finish_reasons: list[str] = []
         self.completion_stop_reasons: list[str] = []
         # Conclude
@@ -60,12 +61,14 @@ class VLLMPythonMathTrajectory:
         self.completion_tok_cnts.append(len(completion.token_ids))
         self.completion_cum_logprobs.append(completion.cumulative_logprob)
         # This seems to cause more memory cost
-        # completion_logprobs = []
-        # for tok_id2logprob in completion.logprobs:
-        #     completion_logprobs.append(
-        #         {k: v.__dict__ for k, v in tok_id2logprob.items()}
-        #     )
-        # self.completion_logprobs_list.append(completion_logprobs)
+        if completion.logprobs is not None:
+            completion_logprobs = []
+            for tok_id2logprob in completion.logprobs:
+                completion_logprobs.append(
+                    {k: v.__dict__ for k, v in tok_id2logprob.items()}
+                )
+            # self.completion_logprobs_list.append(completion_logprobs)
+            self.last_completion_logprobs_list = completion_logprobs
         self.completion_finish_reasons.append(completion.finish_reason)
         self.completion_stop_reasons.append(completion.stop_reason)
 
@@ -80,9 +83,9 @@ class VLLMPythonMathTrajectory:
             "completion_finish_reasons": self.completion_finish_reasons,
             "completion_stop_reasons": self.completion_stop_reasons,
             "completion_tok_cnts": self.completion_tok_cnts,
-            "completion_logprobs_list": self.completion_logprobs_list,
-            "sampling_params_list": self.sampling_params_list,
             "out_texts": self.out_texts,
+            "last_completion_logprobs_list": self.last_completion_logprobs_list,
+            # "sampling_params_list": self.sampling_params_list,
         }
 
     def dump(self, file: TextIO) -> None:

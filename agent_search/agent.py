@@ -160,16 +160,38 @@ class AgentBase:
         if len(fin_trajs) == 0:
             print("[WARNING] No finished trajectories!")
             return 0
-        if isinstance(fin_trajs[0], dict):
-            answers = [traj["ans"] for traj in fin_trajs]
-        else:
-            answers = [traj.ans for traj in fin_trajs]
-        ans_votes = Counter(answers).most_common()
-        maj_ans = ans_votes[0][0]
-        print(
-            f"{sum(ans_vote[1] for ans_vote in ans_votes)} answers vote as: {ans_votes} -> {maj_ans}"
+
+        # if isinstance(fin_trajs[0], dict):
+        #     answers = [traj["ans"] for traj in fin_trajs]
+        # else:
+        #     answers = [traj.ans for traj in fin_trajs]
+        # ans_votes = Counter(answers).most_common()
+        # fin_ans = ans_votes[0][0]
+        # print(
+        #     f"{sum(ans_vote[1] for ans_vote in ans_votes)} answers vote as: {ans_votes} -> {fin_ans}"
+        # )
+
+        from collections import defaultdict
+        from math import exp
+
+        ans2tok_avg_prob = defaultdict(list)
+        for traj in fin_trajs:
+            tok_avg_cum_logprob = (
+                traj.completion_cum_logprobs[-1] / traj.completion_tok_cnts[-1]
+            )
+            tok_avg_prob = exp(tok_avg_cum_logprob)
+            ans2tok_avg_prob[traj.ans].append(tok_avg_prob)
+        print(f"{ans2tok_avg_prob=}")
+        ans2agg_tok_avg_prob = {
+            ans: sum(tok_avg_probs) for ans, tok_avg_probs in ans2tok_avg_prob.items()
+        }
+        sorted_ans2agg_tok_avg_prob = sorted(
+            ans2agg_tok_avg_prob.items(), key=lambda x: x[1], reverse=True
         )
-        return maj_ans
+        fin_ans = sorted_ans2agg_tok_avg_prob[0][0]
+        print(f"{sorted_ans2agg_tok_avg_prob=} -> {fin_ans=}")
+
+        return fin_ans
 
     def extract_ans(self, resp: str) -> str:
         """Extract the answer from the response."""
@@ -378,34 +400,40 @@ class VLLMPythonMathAgent(AgentBase):
                     new_trajs = []
                     for traj, exec_res in zip(trajs, results):
                         if not isinstance(
-                            exec_res, tuple
+                            exec_res, str
                         ):  # errors, e.g. `asyncio.TimeoutError`
                             if self.search_cfg.allow_timeout:
-                                stdout = ""
-                                stderr = str(exec_res)
+                                output = str(exec_res)
                             else:
                                 traj.finish_reason = "exec-timeout"
                                 drop_trajs.append(traj)
                                 continue
                         else:
-                            stdout, stderr = exec_res
-                        stderr = self.ctx_template.code_cell_template.clean_stderr(
-                            stderr
-                        )
+                            output = exec_res
+                        stdout = output.split(
+                            "---------------------------------------------------------------------------"
+                        )[0]
+                        if "Traceback (most recent call last)\n" in output:
+                            stderr = self.ctx_template.code_cell_template.clean_stderr(
+                                output.split("Traceback (most recent call last)")[-1]
+                            )
+                        else:
+                            stderr = ""
+
                         if not self.search_cfg.allow_err and stderr:
                             traj.finish_reason = "exec-error"
                             drop_trajs.append(traj)
                         if not self.search_cfg.allow_empty_output and not stdout:
                             traj.finish_reason = "empty-output"
                             drop_trajs.append(traj)
+                        output = stderr if stderr else stdout
+
                         # Compose output
-                        output = stdout
-                        if stderr:
-                            # Same as Jupyter Notebook stdout and stderr
-                            output += "\n" + stderr
                         output = self.ctx_template.code_cell_template.trunc_output(
                             output
                         )
+                        if stderr:
+                            output = "Runtime errors: " + output
                         traj.out_texts.append(
                             self.ctx_template.code_cell_template.wrap_output(output)
                         )
@@ -437,7 +465,7 @@ class VLLMPythonMathAgent(AgentBase):
                 with open(os.path.join(output_dir, "fin-trajs-search.json"), "w") as f:
                     json.dump(
                         sorted(
-                            [traj.__dict__ for traj in fin_trajs],
+                            [traj.to_dict() for traj in fin_trajs],
                             key=lambda x: x["ans"],
                         ),
                         f,
@@ -447,7 +475,7 @@ class VLLMPythonMathAgent(AgentBase):
                 with open(os.path.join(output_dir, "drop-trajs-search.json"), "w") as f:
                     json.dump(
                         sorted(
-                            [traj.__dict__ for traj in drop_trajs],
+                            [traj.to_dict() for traj in drop_trajs],
                             key=lambda x: x["finish_reason"],
                         ),
                         f,
