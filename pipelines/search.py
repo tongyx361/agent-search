@@ -5,19 +5,17 @@
 #
 
 import argparse
-import torch
 import json
 import os
-
 import time
 from collections import defaultdict
 from datetime import datetime
+
+import torch
+from transformers import set_seed
 from vllm import LLM, SamplingParams
 
-
-from transformers import set_seed
-from agent_search.agent import VLLMPythonMathAgent, AgentSearchCfg
-
+from agent_search.agent import AgentSearchCfg, VLLMPythonMathAgent
 
 GPU_DTYPE = torch.float16
 LOCAL_GPU_MEM_GB = 80
