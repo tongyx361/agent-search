@@ -428,7 +428,7 @@ class RAG:
 
         self.max_len = self.tokenizer.model_max_length
         self.qas = qas if qas else EG_QAS
-        self.qa_embeds = self.embed([q + "\n\n" + a for q, a in self.qas])
+        self.qa_embeds = self.embed([q + "\n\n" + a for q, a in self.qas]).float()
         self.top_k = top_k
 
         print(self.__dict__)
@@ -452,14 +452,14 @@ class RAG:
         with torch.no_grad():
             outputs = self.model(**input_dict.to(self.device))
 
-        embeddings = outputs.last_hidden_state[:, 0]
+        embeddings = outputs.last_hidden_state[:, 0].float()
         if norm:
             embeddings = F.normalize(embeddings, p=2, dim=1)
 
         return embeddings
 
     def retrieve(self, query: str) -> list[tuple[str, str]]:
-        query_embed = self.embed(query)
+        query_embed = self.embed(query).float()
         sim_scores = F.cosine_similarity(query_embed, self.qa_embeds, dim=1)
         print(f"{sim_scores=}")
         top_results = sim_scores.argsort(descending=True)[: self.top_k]
