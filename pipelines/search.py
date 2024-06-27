@@ -5,17 +5,19 @@
 #
 
 import argparse
+import torch
 import json
 import os
+
 import time
 from collections import defaultdict
 from datetime import datetime
-
-import torch
-from transformers import set_seed
 from vllm import LLM, SamplingParams
 
-from agent_search.agent import AgentSearchCfg, VLLMPythonMathAgent
+
+from transformers import set_seed
+from agent_search.agent import VLLMPythonMathAgent, AgentSearchCfg
+
 
 GPU_DTYPE = torch.float16
 LOCAL_GPU_MEM_GB = 80
@@ -182,13 +184,13 @@ parser.add_argument(
 parser.add_argument(
     "--rag_model",
     type=str,
-    default="Alibaba-NLP/gte-large-en-v1.5",
+    default="BAAI/bge-large-en-v1.5",
     help="The RAG model to use.",
 )
 parser.add_argument(
     "--n_shot",
     type=int,
-    default=1,
+    default=4,
     help="The number of example shots for ICL.",
 )
 parser.add_argument(
