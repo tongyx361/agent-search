@@ -31,5 +31,6 @@ d = { 'settings': { 'branch': 'main',
                                         'agent_search.exec_code.exec_cells': ('core.html#exec_cells', 'agent_search/exec_code.py')},
             'agent_search.parse': {},
             'agent_search.prompt': {},
+            'agent_search.rag': {},
             'agent_search.trajectory': {},
             'agent_search.utils': {}}}

@@ -17,6 +17,15 @@ PROMPT_TEMPLATE_ID2DICT = {
         "prompt_before_resp": "",
         "delim": "<｜end▁of▁sentence｜>",
     },
+    "qa": {
+        "template_id": "qa",
+        "sys_prompt": "",
+        "query_prompt": "User:" + "\n",
+        "prompt_after_query": "",
+        "resp_prompt": "Assistant:" + "\n",
+        "prompt_before_resp": "",
+        "delim": "\n\n",
+    },
 }
 
 

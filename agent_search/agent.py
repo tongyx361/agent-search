@@ -1,9 +1,9 @@
 import json
 import math
 import os
-from collections import Counter
 from copy import deepcopy
-from typing import Any, Callable, Optional, Union
+from functools import partial
+from typing import Any, Optional, Union
 
 from pebble import ProcessPool
 from tqdm import tqdm
@@ -12,6 +12,7 @@ from vllm import LLM, RequestOutput, SamplingParams
 from .exec_code import N_KAGGLE_CPU, CodeCellTemplate, exec_cells
 from .parse import extract_ans_is, extract_boxed
 from .prompt import PromptTemplate
+from .rag import RAG
 from .trajectory import VLLMPythonMathTrajectory
 
 N_MAX_COMPLETION_PER_REQ = 32
@@ -34,7 +35,11 @@ class AgentSearchCfg:
         allow_timeout: bool = True,
         allow_err: bool = True,
         allow_empty_output: bool = True,
+        no_clean_output: bool = False,
         spec_neg: bool = False,
+        rag_model: Optional[str] = None,
+        n_shot: int = 0,
+        rel_last: bool = True,
     ):
         self.sampling_params = sampling_params
         # if self.sampling_params.prompt_logprobs in [None, 0]:
@@ -63,7 +68,11 @@ class AgentSearchCfg:
         self.allow_timeout = allow_timeout
         self.allow_err = allow_err
         self.allow_empty_output = allow_empty_output
+        self.no_clean_output = no_clean_output
         self.spec_neg = spec_neg
+        self.rag_model = rag_model
+        self.n_shot = n_shot
+        self.rel_last = rel_last
 
 
 class CtxTemplate:
@@ -214,14 +223,17 @@ class VLLMPythonMathAgent(AgentBase):
         prompt_template: Union[PromptTemplate, str],
         search_cfg: AgentSearchCfg,
         code_cell_template: Union[CodeCellTemplate, str],
-        rag_eg_qa_map: Optional[dict[str, str]] = None,
     ):
         AgentBase.__init__(self)
 
         self.llm = llm
         self.ctx_template = CtxTemplate(prompt_template, code_cell_template)
         self.search_cfg = search_cfg
-        self.rag_eg_qa_map = rag_eg_qa_map if rag_eg_qa_map else {}
+        self.rag = (
+            RAG(self.search_cfg.rag_model, top_k=self.search_cfg.n_shot)
+            if search_cfg.n_shot > 0 and self.search_cfg.rag_model
+            else None
+        )
         # Sampling parameters
         stop_texts = self.ctx_template.get_stop_texts(
             gen_code=self.search_cfg.code_temperature
@@ -253,7 +265,9 @@ class VLLMPythonMathAgent(AgentBase):
     ):
         fin_trajs, drop_trajs = [], []
 
-        eg_qas = self.rag_eg_qa_map.items()
+        eg_qas = self.rag.retrieve(init_input) if self.rag else []
+        if self.search_cfg.rel_last:
+            eg_qas = reversed(eg_qas)
         prompt = self.ctx_template.prompt_template.make_full_prompt(
             init_input, eg_qas=eg_qas
         )
@@ -370,12 +384,19 @@ class VLLMPythonMathAgent(AgentBase):
                         break
 
                     # Code execution
+
+                    exec_cells_worker = (
+                        partial(exec_cells, color=True)
+                        if self.search_cfg.no_clean_output
+                        else partial(exec_cells, color=False)
+                    )
+
                     with ProcessPool(
                         max_workers=min(N_KAGGLE_CPU, len(new_trajs)), max_tasks=1024
                     ) as pool:
                         # All trajectories without code to execute are dropped
                         iterator = pool.map(
-                            exec_cells,  # Worker should be imported from an external module to avoid pickling issues when using multiprocessing in notebooks
+                            exec_cells_worker,  # Worker should be imported from an external module to avoid pickling issues when using multiprocessing in notebooks
                             [
                                 self.ctx_template.extract_cells(traj.ctx)
                                 for traj in new_trajs
@@ -410,30 +431,36 @@ class VLLMPythonMathAgent(AgentBase):
                                 continue
                         else:
                             output = exec_res
-                        stdout = output.split(
-                            "---------------------------------------------------------------------------"
-                        )[0]
-                        if "Traceback (most recent call last)\n" in output:
-                            stderr = self.ctx_template.code_cell_template.clean_stderr(
-                                output.split("Traceback (most recent call last)")[-1]
+
+                        if not self.search_cfg.no_clean_output:
+                            stdout = output.split(
+                                "---------------------------------------------------------------------------"
+                            )[0]
+                            if "Traceback (most recent call last)\n" in output:
+                                stderr = (
+                                    self.ctx_template.code_cell_template.clean_stderr(
+                                        output.split(
+                                            "Traceback (most recent call last)"
+                                        )[-1]
+                                    )
+                                )
+                            else:
+                                stderr = ""
+
+                            if not self.search_cfg.allow_err and stderr:
+                                traj.finish_reason = "exec-error"
+                                drop_trajs.append(traj)
+                            if not self.search_cfg.allow_empty_output and not stdout:
+                                traj.finish_reason = "empty-output"
+                                drop_trajs.append(traj)
+                            output = stderr if stderr else stdout
+
+                            # Compose output
+                            output = self.ctx_template.code_cell_template.trunc_output(
+                                output
                             )
-                        else:
-                            stderr = ""
-
-                        if not self.search_cfg.allow_err and stderr:
-                            traj.finish_reason = "exec-error"
-                            drop_trajs.append(traj)
-                        if not self.search_cfg.allow_empty_output and not stdout:
-                            traj.finish_reason = "empty-output"
-                            drop_trajs.append(traj)
-                        output = stderr if stderr else stdout
-
-                        # Compose output
-                        output = self.ctx_template.code_cell_template.trunc_output(
-                            output
-                        )
-                        if stderr:
-                            output = "Runtime errors: " + output
+                            if stderr:
+                                output = "Runtime errors: " + output
                         traj.out_texts.append(
                             self.ctx_template.code_cell_template.wrap_output(output)
                         )

@@ -243,8 +243,9 @@ from sympy import *
             with io.capture_output(display=False) as captured:
                 shell.run_cell(cell)
                 # serializing to str to make sure things like Rational can be converted to json
-                output = ANSI_ESC.sub("", captured.stdout).strip()
-                assert not captured.stderr  # Always empty
+                if not color:
+                    output = ANSI_ESC.sub("", captured.stdout).strip()
+                # assert not captured.stderr  # Always empty
     except Exception:
         # removing useless prefix from traceback
         output = traceback.format_exc().strip()

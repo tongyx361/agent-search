@@ -13,8 +13,9 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from transformers import set_seed
 
+
+from transformers import set_seed
 from agent_search.agent import VLLMPythonMathAgent, AgentSearchCfg
 
 
@@ -28,7 +29,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument(
-    "--model_id_or_path",
+    "--model",
     type=str,
     default="deepseek-ai/deepseek-math-7b-rl",
     help="The HF model ID or path to the model",
@@ -49,6 +50,11 @@ parser.add_argument(
     "--gen_dset_fpath",
     type=str,
     help="The path to the dataset to generate the search space from",
+)
+parser.add_argument(
+    "--prompt_template",
+    type=str,
+    help="The ID of the prompt template to use",
 )
 
 parser.add_argument(
@@ -176,9 +182,26 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--rag",
+    "--rag_model",
+    type=str,
+    default="Alibaba-NLP/gte-large-en-v1.5",
+    help="The RAG model to use.",
+)
+parser.add_argument(
+    "--n_shot",
+    type=int,
+    default=1,
+    help="The number of example shots for ICL.",
+)
+parser.add_argument(
+    "--rel_last",
     action="store_true",
-    help="Whether to use RAG model for generation",
+    help="Whether to put the more relevant examples last.",
+)
+parser.add_argument(
+    "--no_clean_output",
+    action="store_true",
+    help="Whether to put the more relevant examples last.",
 )
 
 args, _ = parser.parse_known_args()
@@ -187,92 +210,9 @@ args, _ = parser.parse_known_args()
 set_seed(args.seed)
 
 
-ICL_EG_QA_MAP = {
-    r"""
-The points $\left(x, y\right)$ satisfying $((\vert x + y \vert - 10)^2 + ( \vert x - y \vert - 10)^2)((\vert x \vert - 8)^2 + ( \vert y \vert - 8)^2) = 0$ enclose a convex polygon.
-What is the area of this convex polygon?
-    """: r'''
-```python
-from sympy import symbols, Eq, solve
-
-def polygon_vertices():
-    """The points $\left(x, y\right)$ satisfying $((\vert x + y \vert - 10)^2 + ( \vert x - y \vert - 10)^2)((\vert x \vert - 8)^2 + ( \vert y \vert - 8)^2) = 0$ enclose a convex polygon. What is the area of this convex polygon?"""
-    # Define the variables
-    x, y = symbols("x y")
-    # Define the equations from the first factor
-    eq1_cases = [Eq(x + y, 10), Eq(x + y, -10)]
-    eq2_cases = [Eq(x - y, 10), Eq(x - y, -10)]
-    # Define the equations from the second factor
-    eq3_cases = [Eq(x, 8), Eq(x, -8)]
-    eq4_cases = [Eq(y, 8), Eq(y, -8)]
-    # Solve each combination of equations
-    solutions = []
-    # Solving combinations from the first factor
-    for eq1 in eq1_cases:
-        for eq2 in eq2_cases:
-            sol = solve([eq1, eq2], (x, y))
-            if sol:
-                solutions.append(sol)
-    # Solving combinations from the second factor
-    for eq3 in eq3_cases:
-        for eq4 in eq4_cases:
-            sol = solve([eq3, eq4], (x, y))
-            if sol:
-                solutions.append(sol)
-    # Extract unique solutions
-    unique_solutions = {tuple(sol.items()) for sol in solutions}
-    return unique_solutions
-
-result = polygon_vertices()
-print(result)
-```
-
-```output
-{((x, 10), (y, 0)), ((x, 0), (y, -10)), ((x, -8), (y, 8)), ((x, 8), (y, 8)), ((x, -10), (y, 0)), ((x, -8), (y, -8)), ((x, 8), (y, -8)), ((x, 0), (y, 10))}
-```
-
-Now we have the coordinates of all the vertices. To find the area of this polygon, we can use the Shoelace formula (Gauss's area formula for polygons): $\text{Area} = \frac{1}{2} \left| \sum_{i=1}^{n} (x_i y_{i+1} - y_i x_{i+1}) \right|$
-
-```python
-def polygon_area():
-    # Reorder the vertices in a logical sequence
-    vertices_ordered = [(10, 0), (8, 8), (0, 10), (-8, 8), (-10, 0), (-8, -8), (0, -10), (8, -8)]
-    # Repeat the first vertex at the end
-    vertices = vertices_ordered + [vertices_ordered[0]]
-    # Calculate the area using the Shoelace formula
-    area = 0
-    for i in range(len(vertices) - 1):
-        area += (
-            vertices[i][0] * vertices[i + 1][1] - vertices[i + 1][0] * vertices[i][1]
-        )
-    return abs(area) / 2
-
-result = polygon_area()
-print(result)
-```
-
-```output
-320.0
-```
-
-Therefore, the area of the convex polygon is $320$. The answer is $\boxed{320}$.
-''',
-}
-
-ICL_EG_QA_MAP = {
-    k.replace("\n", " ").strip(): v.strip() for k, v in ICL_EG_QA_MAP.items()
-}
-for i, (q, a) in enumerate(ICL_EG_QA_MAP.items()):
-    print(f"### Problem {i}")
-    print("#### Problem")
-    print(q)
-    print("#### Solution")
-    print(a)
-
-
 llm = LLM(
-    model=args.model_id_or_path,
-    tokenizer=args.model_id_or_path,
+    model=args.model,
+    tokenizer=args.model,
     tensor_parallel_size=torch.cuda.device_count(),
     dtype=GPU_DTYPE,
     seed=args.seed,
@@ -311,17 +251,20 @@ search_cfg = AgentSearchCfg(
     allow_timeout=args.allow_timeout,
     allow_err=args.allow_err,
     allow_empty_output=args.allow_empty_output,
+    no_clean_output=args.no_clean_output,
     spec_neg=args.spec_neg,
+    rag_model=args.rag_model,
+    n_shot=args.n_shot,
+    rel_last=args.rel_last,
 )
 print(f"{search_cfg.__dict__=}")
 
 
 agent = VLLMPythonMathAgent(
     llm,
-    prompt_template="deepseekmath-tool",
+    prompt_template=args.prompt_template,
     search_cfg=search_cfg,
     code_cell_template="deepseekmath",
-    rag_eg_qa_map=ICL_EG_QA_MAP if args.rag else None,
 )
 
 agent.ctx_template.prompt_template.prompt_after_query = (
@@ -350,8 +293,9 @@ try:
         problem_time = time.time() - problem_start
         problem_times.append(problem_time)
         eq = agent.eq(ans, dp["ref_ans"])
-        if eq and "domain" in dp:
-            domain_correct_idxs[dp["domain"]].append(idx)
+        if eq:
+            domain = dp.get("domain", "any")
+            domain_correct_idxs[domain].append(idx)
         print(f"Pred. ({ans}) {'=' if eq else '!'}= Ref. ({dp['ref_ans']})")
         print(f"Problem time: {problem_time:.2f}s")
         print(
